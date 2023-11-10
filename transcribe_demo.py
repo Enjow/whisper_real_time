@@ -6,6 +6,7 @@ import os
 import speech_recognition as sr
 import whisper
 import torch
+from faster_whisper import WhisperModel
 
 from datetime import datetime, timedelta
 from queue import Queue
@@ -24,7 +25,7 @@ def main():
                         help="Energy level for mic to detect.", type=int)
     parser.add_argument("--record_timeout", default=2,
                         help="How real time the recording is in seconds.", type=float)
-    parser.add_argument("--phrase_timeout", default=3,
+    parser.add_argument("--phrase_timeout", default=1.5,
                         help="How much empty space between recordings before we "
                              "consider it a new line in the transcription.", type=float)
     if 'linux' in platform:
@@ -66,6 +67,8 @@ def main():
     model = args.model
     if args.model != "large" and not args.non_english:
         model = model + ".en"
+    
+    # audio_model = WhisperModel("base") # added by me -- THIS LINE 
     audio_model = whisper.load_model(model)
 
     record_timeout = args.record_timeout
@@ -93,6 +96,8 @@ def main():
     # Cue the user that we're ready to go.
     print("Model loaded.\n")
 
+    phrase_counter = 0
+
     while True:
         try:
             now = datetime.utcnow()
@@ -101,9 +106,9 @@ def main():
                 phrase_complete = False
                 # If enough time has passed between recordings, consider the phrase complete.
                 # Clear the current working audio buffer to start over with the new data.
-                if phrase_time and now - phrase_time > timedelta(seconds=phrase_timeout):
-                    last_sample = bytes()
-                    phrase_complete = True
+                if phrase_counter == 3 or (now - phrase_time > timedelta(seconds=phrase_timeout+2)):
+                    transcription = []
+                    phrase_counter = 0
                 # This is the last time we received new audio data from the queue.
                 phrase_time = now
 
@@ -122,6 +127,7 @@ def main():
 
                 # Read the transcription.
                 result = audio_model.transcribe(temp_file, fp16=torch.cuda.is_available())
+                # result = audio_model.transcribe(temp_file)
                 text = result['text'].strip()
 
                 # If we detected a pause between recordings, add a new item to our transcription.
@@ -133,10 +139,15 @@ def main():
 
                 # Clear the console to reprint the updated transcription.
                 os.system('cls' if os.name=='nt' else 'clear')
-                for line in transcription:
-                    print(line)
-                # Flush stdout.
-                print('', end='', flush=True)
+                # Write to subs file
+                with open("subtitle_file.txt", 'w') as subs_file:
+
+                    for line in transcription:
+                        print(line)
+                        subs_file.write(line + '\n')
+                        
+                    # Flush stdout.
+                    print('', end='', flush=True)
 
                 # Infinite loops are bad for processors, must sleep.
                 sleep(0.25)
