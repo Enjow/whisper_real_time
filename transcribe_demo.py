@@ -119,9 +119,13 @@ def main():
                 phrase_complete = False
                 # If enough time has passed between recordings, consider the phrase complete.
                 # Clear the current working audio buffer to start over with the new data.
-                if phrase_counter == 3 or (now - phrase_time > timedelta(seconds=phrase_timeout+2)):
-                    transcription = []
-                    phrase_counter = 0
+                if phrase_time and now - phrase_time > timedelta(seconds=phrase_timeout):
+                    last_sample = bytes()
+                    phrase_complete = True
+                    phrase_counter+=1
+                    if phrase_counter > 3:
+                        transcription = []
+
                 # This is the last time we received new audio data from the queue.
                 phrase_time = now
 
