@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--phrase_timeout", default=1.5,
                         help="How much empty space between recordings before we "
                              "consider it a new line in the transcription.", type=float)
+    parser.add_argument("--microphone_input", default=None,
+                        help="Which microphone to use. Standard set to default input.", type=str)
     if 'linux' in platform:
         parser.add_argument("--default_microphone", default='pulse',
                             help="Default microphone name for SpeechRecognition. "
@@ -60,8 +62,19 @@ def main():
                 if mic_name in name:
                     source = sr.Microphone(sample_rate=16000, device_index=index)
                     break
-    else:
-        source = sr.Microphone(sample_rate=16000)
+    else: 
+        if args.microphone_input:
+            # mic_name = "MacBook Pro Speakers"
+            # mic_name = "MacBook Pro Microphone"
+            for index, name in enumerate(sr.Microphone.list_microphone_names()):
+                if args.microphone_input in name:
+                    device_index = index
+                    print(f'Using microphone with index {index}, called {name}')
+        else:
+            device_index = None
+
+        source = sr.Microphone(device_index=device_index, sample_rate=16000) # Use output as microphone.
+        # source = sr.Microphone(sample_rate=16000) # Use output as microphone.
 
     # Load / Download model
     model = args.model
