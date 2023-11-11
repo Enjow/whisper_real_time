@@ -4,8 +4,6 @@ import argparse
 import io
 import os
 import speech_recognition as sr
-import whisper
-import torch
 from faster_whisper import WhisperModel
 
 from datetime import datetime, timedelta
@@ -16,6 +14,7 @@ from sys import platform
 
 
 def main():
+    DELAY_S = 5 ## input parameter in the future. set for 30s for now. 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="medium", help="Model to use",
                         choices=["tiny", "base", "small", "medium", "large"])
@@ -81,14 +80,14 @@ def main():
     if args.model != "large" and not args.non_english:
         model = model + ".en"
     
-    # audio_model = WhisperModel("base") # added by me -- THIS LINE 
-    audio_model = whisper.load_model(model)
+    audio_model = WhisperModel(model) # added by me -- THIS LINE 
 
     record_timeout = args.record_timeout
     phrase_timeout = args.phrase_timeout
 
     temp_file = NamedTemporaryFile().name
     transcription = ['']
+    transcription_times = [datetime.utcnow()]
 
     with source:
         recorder.adjust_for_ambient_noise(source)
@@ -123,8 +122,8 @@ def main():
                     last_sample = bytes()
                     phrase_complete = True
                     phrase_counter+=1
-                    if phrase_counter > 3:
-                        transcription = []
+                    # if phrase_counter > 3:
+                    #     transcription = []
 
                 # This is the last time we received new audio data from the queue.
                 phrase_time = now
@@ -143,26 +142,43 @@ def main():
                     f.write(wav_data.read())
 
                 # Read the transcription.
-                result = audio_model.transcribe(temp_file, fp16=torch.cuda.is_available())
-                # result = audio_model.transcribe(temp_file)
-                text = result['text'].strip()
+                # result = audio_model.transcribe(temp_file, fp16=torch.cuda.is_available())
+                segments, _ = audio_model.transcribe(temp_file, language="sv") # Faster whisper
+                text=''
+
+                # if segments.__length__ > 1: 
+                for segment in segments: 
+                    text = segment.test #  # TODO: Not sure what multiple segments would do. Possible cause of error. Did not investigate what a segment is # text = text + ". " + segment.text 
 
                 # If we detected a pause between recordings, add a new item to our transcription.
                 # Otherwise edit the existing one.
                 if phrase_complete:
                     transcription.append(text)
+                    transcription_times.append(phrase_time)
                 else:
+                    print("Fixed the previous!!")
                     transcription[-1] = text
+                    transcription_times[-1]=phrase_time
+
 
                 # Clear the console to reprint the updated transcription.
                 os.system('cls' if os.name=='nt' else 'clear')
-                # Write to subs file
-                with open("subtitle_file.txt", 'w') as subs_file:
 
-                    for line in transcription:
-                        print(line)
-                        subs_file.write(line + '\n')
-                        
+                # Write to subs file
+                with open("subtitle_file.txt", 'w') as subs_file:            
+                    for index, line in enumerate(transcription):
+                        line_time = transcription_times[index]
+                        line_age = now - line_time
+                        print("line age: " + str(line_age))
+                        if line_age > timedelta(seconds=DELAY_S+5): # delete old transcriptions
+                            transcription.pop(index)
+                            transcription_times.pop(index)
+                        elif line_age > timedelta(seconds=DELAY_S-2):
+                            print("DELAYED: " + line)
+                            print(transcription_times[index])
+                            subs_file.write(line + '\n')
+                        else: 
+                            print("NOW: " + line)
                     # Flush stdout.
                     print('', end='', flush=True)
 
